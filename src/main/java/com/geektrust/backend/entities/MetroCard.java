@@ -1,17 +1,18 @@
 package com.geektrust.backend.entities;
 
 public class MetroCard {
+    public static final String SHOULD_BE_POSITIVE_ERROR = "Balance should be positive";
     private final String cardNumber;
     private long balance;
     private Station fromStation;
     private Station toStation;
     private boolean isReturnJourney;
     private static final long MINIMUM_BALANCE = 0;
-    private final static double SERVICE_CHARGE_PERCENT = 2.0/100;
+    private final static double SERVICE_CHARGE_PERCENT = 0.02;
 
     public MetroCard(String uniqueId, long balance) {
         if (balance < MINIMUM_BALANCE)
-            throw new ArithmeticException("Balance should be positive");
+            throw new ArithmeticException(SHOULD_BE_POSITIVE_ERROR);
         this.cardNumber = uniqueId;
         this.balance = balance;
         fromStation = null;

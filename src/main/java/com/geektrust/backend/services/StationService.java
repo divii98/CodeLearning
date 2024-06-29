@@ -7,69 +7,52 @@ import com.geektrust.backend.entities.Station;
 import com.geektrust.backend.entities.TravelCharges;
 import com.geektrust.backend.exceptions.MetroCardAlreadyExistException;
 import com.geektrust.backend.exceptions.MetroCardNotFoundException;
+import com.geektrust.backend.repositories.MetroCardRepository;
+import com.geektrust.backend.repositories.StationSummaryRepository;
 
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 
 public class StationService implements IStationService {
-
-    private final HashMap<Station, StationSummaryDto> stationSummaryHashMap;
-    private final HashMap<String, MetroCard> metroCards;
+    private final MetroCardRepository metroCardRepository;
+    private final StationSummaryRepository stationSummaryRepository;
+    private static final String EXIST_WITH_SAME_NUMBER_ERROR = "Metro card already exist with same number";
+    private static final String DOES_NOT_EXIST_WITH_GIVEN_NUMBER_ERROR = "Metro card does not exist with given number";
     private static final long NO_SERVICE_CHARGE = 0;
-    private static final long NO_DISCOUNT_AMOUNT =0;
+    private static final long NO_DISCOUNT_AMOUNT = 0;
 
-
-    public StationService() {
-        stationSummaryHashMap = new HashMap<>();
-        stationSummaryHashMap.put(Station.CENTRAL, new StationSummaryDto(Station.CENTRAL));
-        stationSummaryHashMap.put(Station.AIRPORT, new StationSummaryDto(Station.AIRPORT));
-        metroCards = new HashMap<>();
+    public StationService(MetroCardRepository metroCardRepository, StationSummaryRepository stationSummaryRepository) {
+        this.metroCardRepository = metroCardRepository;
+        this.stationSummaryRepository = stationSummaryRepository;
     }
-
-
     @Override
     public void metroCardBalance(String metroCardNumber, long balance) throws ArithmeticException, MetroCardAlreadyExistException {
+        if(metroCardRepository.isExistByNumber(metroCardNumber))
+            throw new MetroCardAlreadyExistException(EXIST_WITH_SAME_NUMBER_ERROR);
         MetroCard metroCard = new MetroCard(metroCardNumber, balance);
-        addMetroCardBalanceDetail(metroCardNumber, metroCard);
+        metroCardRepository.save(metroCard);
     }
-
-    private void addMetroCardBalanceDetail(String metroCardNumber, MetroCard metroCard) throws MetroCardAlreadyExistException {
-        if (metroCards.containsKey(metroCardNumber)) {
-            throw new MetroCardAlreadyExistException("Metro card already exist with same number");
-        }
-        metroCards.put(metroCardNumber, metroCard);
-    }
-
-
     @Override
     public void checkInStation(String metroCardNumber, PassengerType passengerType, Station fromStation) throws MetroCardNotFoundException {
         MetroCard metroCard = getMetroCard(metroCardNumber);
         long travelCharges = TravelCharges.getCharges(passengerType);
-        metroCard.checkIfReturnJourney(fromStation);
-        long discount = calculateDiscount(metroCard,travelCharges);
+        long discount = getDiscount(fromStation, metroCard, travelCharges);
         travelCharges -= discount;
         long serviceCharge = calculateServiceChargeIfApplicable(metroCard, travelCharges);
-        metroCard.updateJourney(travelCharges,fromStation);
-        updateMetroCardDetailsMap(metroCard);
-        updateStationSummary(fromStation, passengerType, travelCharges + serviceCharge, discount);
+        metroCard.updateJourney(travelCharges, fromStation);
+        metroCardRepository.save(metroCard);
+        stationSummaryRepository.updateStationSummaryDto(fromStation, passengerType, travelCharges + serviceCharge, discount);
+    }
+    private long getDiscount(Station fromStation, MetroCard metroCard, long travelCharges) {
+        metroCard.checkIfReturnJourney(fromStation);
+        return calculateDiscount(metroCard, travelCharges);
     }
 
     private MetroCard getMetroCard(String metroCardNumber) {
-        Optional<MetroCard> metroCard = Optional.ofNullable(metroCards.get(metroCardNumber));
+        Optional<MetroCard> metroCard = metroCardRepository.findByNumber(metroCardNumber) ;
         if(!metroCard.isPresent())
-            throw new MetroCardNotFoundException("Metro card does not exist with given number");
+            throw new MetroCardNotFoundException(DOES_NOT_EXIST_WITH_GIVEN_NUMBER_ERROR);
         return metroCard.get();
-    }
-
-    private void updateStationSummary(Station fromStation, PassengerType passengerType, long totalAmount, long discount) {
-        stationSummaryHashMap.put(fromStation, stationSummaryHashMap.get(fromStation)
-                .updateStationDto(passengerType, totalAmount, discount));
-    }
-
-    private void updateMetroCardDetailsMap(MetroCard metroCard) {
-        metroCards.put(metroCard.getCardNumber(), metroCard);
     }
 
     private long calculateServiceChargeIfApplicable(MetroCard metroCard, long travelCharges) {
@@ -88,16 +71,13 @@ public class StationService implements IStationService {
         return discount;
     }
 
-
     private boolean isBalanceSufficientToTravel(MetroCard metroCard, long travelCharges) {
         return metroCard.getBalance() >= travelCharges;
     }
 
     @Override
     public List<StationSummaryDto> getStationSummary() {
-        ArrayList<StationSummaryDto> stationSummaryList = new ArrayList<>(stationSummaryHashMap.values());
-        stationSummaryList.sort((stationDto1,stationDto2) ->
-                stationDto2.getStation().toString().compareTo(stationDto1.getStation().toString()));
-        return  stationSummaryList;
+        return stationSummaryRepository.getSummaryDtoByStation();
     }
+
 }
